@@ -1,0 +1,20 @@
+#app/views/memberships/index.html.erb
+<h3><%= link_to "go to #{@room.name}",room_path(@room) %></h3>
+<h2 >Add members to <%=@room.name%></h2>
+
+<h4>current members</h4>
+<ul id="member-list">
+  <% @memberships.each do |member| %>
+    <li><%= member.name %></li>
+  <% end %>
+</ul>
+
+<h4>Add Members</h4>
+<ul id="add-users">
+<% @users.each do |user| %>
+  <li>
+    <%= user.username %>
+    <input type="checkbox" id="<%= "#{user.id}-add-member" %>"/>
+  </li>
+<% end %>
+</ul>
