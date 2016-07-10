@@ -10,4 +10,7 @@
 </ul>
 
 <%= link_to "invite people", room_memberships_path(@room) %>
+
 <%= render @messages %>
+
+<%= render partial: "/messages/form", locals: {room: @room, message: @message} %>
