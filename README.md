@@ -1,24 +1,3 @@
-# README
+## Template for [action cable blog post]({{"http://blog.tomyancey.me/jekyll/update/2016/07/07/action-cable-chat-two/"}})
 
-This README would normally document whatever steps are necessary to get the
-application up and running.
-
-Things you may want to cover:
-
-* Ruby version
-
-* System dependencies
-
-* Configuration
-
-* Database creation
-
-* Database initialization
-
-* How to run the test suite
-
-* Services (job queues, cache servers, search engines, etc.)
-
-* Deployment instructions
-
-* ...
+This is just a skeleton of a chat app so users can follow along with my post.
