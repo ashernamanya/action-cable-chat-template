@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Action Cable Chat Part 1 &middot; Thomas Yancey
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/public/css/poole.css">
+  <link rel="stylesheet" href="/public/css/syntax.css">
+  <link rel="stylesheet" href="/public/css/lanyon.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=PT+Serif:400,400italic,700%7CPT+Sans:400">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="/public/apple-touch-icon-precomposed.png">
+  <link rel="shortcut icon" href="/public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="/atom.xml">
+</head>
+
+
+  <body>
+
+    <!-- Target for toggling the sidebar `.sidebar-checkbox` is for regular
+     styles, `#sidebar-checkbox` for behavior. -->
+<input type="checkbox" class="sidebar-checkbox" id="sidebar-checkbox">
+
+<!-- Toggleable sidebar -->
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-item">
+    <p>A blog</p>
+  </div>
+
+  <nav class="sidebar-nav">
+    <a class="sidebar-nav-item" href="/">Home</a>
+
+    
+
+    
+    
+      
+        
+      
+    
+      
+        
+      
+    
+      
+    
+      
+    
+      
+    
+
+    <a class="sidebar-nav-item" href="http://www.tomyancey.me">Personal Site</a>
+    <a class="sidebar-nav-item" href="http://www.github.com/thomas-yancey">My Github</a>
+  </nav>
+
+  <div class="sidebar-item">
+    <p>
+      &copy; 2016. All rights reserved.
+    </p>
+  </div>
+</div>
+
+
+    <!-- Wrap is the content to shift when toggling the sidebar. We wrap the
+         content to avoid any CSS collisions with our real content. -->
+    <div class="wrap">
+      <div class="masthead">
+        <div class="container">
+          <h3 class="masthead-title">
+            <a href="/" title="Home">Thomas Yancey</a>
+            <small>top notch blog</small>
+          </h3>
+        </div>
+      </div>
+
+      <div class="container content">
+        <div class="post">
+  <h1 class="post-title">Action Cable Chat Part 1</h1>
+  <span class="post-date">06 Jul 2016</span>
+  <p>Rails 5 just came out this past week and I thought what better for a first blog post. I am going to walk through building a simple chat app with action cable. By the end of it we will have an app that allows users to sign up, create private chatrooms and have realtime chat as well as realtime updates of people entering and exiting the room. If you would like to take a look at the finished product you can check it out here – <a href="http://actionchattin.herokuapp.com/">Action Cable Chat</a>.</p>
+
+<!--more-->
+
+<p>While going through this I am going to skip styling to try and keep the length to a minimum and keep the focus on app development. The first portion of it is just going to be setting up the baseline app and in part 2 we will jump into action cable. I am going to run through every step of the app so if you want to configure your own setup you might want to just jump to <a href="/jekyll/update/2016/07/07/action-cable-chat-two/">part 2</a>.</p>
+
+<p>First things first we are going to need to create a new app in Rails 5. If you have yet to upgrade to rails yet go ahead and do so using rails app:update (make sure that you have Ruby 2.2.2 or later). I am going to use postgresql in my app but if you want to use sqlite3 thats fine too. let’s also skip turbolinks because it gave me some issues while scoping my chatrooms.</p>
+
+<figure class="highlight"><pre><code class="language-powershell" data-lang="powershell">rails _5.0.0_ new action-cable-chat -d postgresql --skip-turbolinks</code></pre></figure>
+
+<p>If you boot up your app you should see the fancy new rails 5 landing page.</p>
+
+<p>On creating the new app you are going to want to uncomment redis in your gemfile. We are eventually going to need it at as our data store for our action cable channels. I am going to also uncomment bcrypt since I am going to build my own user model, but if you want you can use devise to speed things up.</p>
+
+<figure class="highlight"><pre><code class="language-powershell" data-lang="powershell">bundle install
+rails db:create</code></pre></figure>
+
+<p>Let’s go ahead and set up our baseline app. Our database is going to be made up of 4 tables – users, rooms, messages, and memberships. The memberships table is a join and is where we are going to be able to make private groups.</p>
+
+<figure class="highlight"><pre><code class="language-powershell" data-lang="powershell">  rails g model User username:string password_digest:string
+  rails g model Room name:string
+  rails g model Message content:text user:references room:references
+  rails g model Membership user:references room:references</code></pre></figure>
+
+<p>Lets go ahead and add some associations and validations to our models we just generated.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="k">class</span> <span class="nc">User</span> <span class="o">&lt;</span> <span class="no">ApplicationRecord</span>
+
+  <span class="n">has_secure_password</span>
+  <span class="n">has_many</span> <span class="ss">:memberships</span>
+  <span class="n">has_many</span> <span class="ss">:rooms</span><span class="p">,</span> <span class="ss">through: :memberships</span>
+
+  <span class="n">validates_uniqueness_of</span> <span class="ss">:username</span>
+  <span class="n">validates_presence_of</span> <span class="ss">:username</span>
+  <span class="n">validates</span> <span class="ss">:username</span><span class="p">,</span> <span class="ss">length: </span><span class="p">{</span><span class="ss">maximum: </span><span class="mi">16</span><span class="p">}</span>
+<span class="k">end</span></code></pre></figure>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="k">class</span> <span class="nc">Room</span> <span class="o">&lt;</span> <span class="no">ApplicationRecord</span>
+
+  <span class="n">has_many</span> <span class="ss">:memberships</span>
+  <span class="n">has_many</span> <span class="ss">:messages</span>
+  <span class="n">has_many</span> <span class="ss">:users</span><span class="p">,</span> <span class="ss">through: :memberships</span>
+
+  <span class="n">validates</span> <span class="ss">:name</span><span class="p">,</span> <span class="ss">presence: </span><span class="kp">true</span><span class="p">,</span>
+             <span class="ss">length: </span><span class="p">{</span> <span class="ss">maximum: </span><span class="mi">10</span><span class="p">},</span>
+             <span class="ss">uniqueness: </span><span class="kp">true</span>
+<span class="k">end</span></code></pre></figure>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="k">class</span> <span class="nc">Message</span> <span class="o">&lt;</span> <span class="no">ApplicationRecord</span>
+
+  <span class="n">belongs_to</span> <span class="ss">:user</span>
+  <span class="n">belongs_to</span> <span class="ss">:room</span>
+
+  <span class="n">validates_presence_of</span> <span class="ss">:content</span>
+  <span class="n">validates_presence_of</span> <span class="ss">:user_id</span>
+  <span class="n">validates_presence_of</span> <span class="ss">:room_id</span>
+
+<span class="k">end</span></code></pre></figure>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="k">class</span> <span class="nc">Membership</span> <span class="o">&lt;</span> <span class="no">ApplicationRecord</span>
+
+  <span class="n">belongs_to</span> <span class="ss">:user</span>
+  <span class="n">belongs_to</span> <span class="ss">:room</span>
+
+  <span class="n">validates_presence_of</span> <span class="ss">:room_id</span>
+  <span class="n">validates_presence_of</span> <span class="ss">:user_id</span>
+
+<span class="k">end</span></code></pre></figure>
+
+<p>If you test that out in your console you should be able to create all of the fields. Make sure the relationship is working so that when you call the following you are creating a new Membership.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby">  <span class="no">User</span><span class="p">.</span><span class="nf">first</span><span class="p">.</span><span class="nf">rooms</span> <span class="o">&lt;&lt;</span> <span class="no">Room</span><span class="p">.</span><span class="nf">first</span></code></pre></figure>
+
+<p>Now to define some routes including our route path. create a welcome controller with index.</p>
+
+<figure class="highlight"><pre><code class="language-powershell" data-lang="powershell">rails g controller Welcome index</code></pre></figure>
+
+<p>we need to setup our routes for users, sessions and root in config/routes.rb</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby">  <span class="n">root</span> <span class="ss">to: </span><span class="s1">'welcome#index'</span>
+  <span class="n">resources</span> <span class="ss">:users</span><span class="p">,</span> <span class="ss">only: </span><span class="p">[</span><span class="ss">:new</span><span class="p">,</span> <span class="ss">:create</span><span class="p">]</span>
+  <span class="n">resources</span> <span class="ss">:sessions</span><span class="p">,</span> <span class="ss">only: </span><span class="p">[</span><span class="ss">:new</span><span class="p">,</span> <span class="ss">:destroy</span><span class="p">,</span> <span class="ss">:create</span><span class="p">]</span></code></pre></figure>
+
+<p>Create the corresponding views and controller for users</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="k">class</span> <span class="nc">UsersController</span> <span class="o">&lt;</span> <span class="no">ApplicationController</span>
+
+  <span class="k">def</span> <span class="nf">new</span>
+    <span class="vi">@user</span> <span class="o">=</span> <span class="no">User</span><span class="p">.</span><span class="nf">new</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">create</span>
+    <span class="vi">@user</span> <span class="o">=</span> <span class="no">User</span><span class="p">.</span><span class="nf">new</span><span class="p">(</span><span class="n">user_params</span><span class="p">)</span>
+    <span class="k">if</span> <span class="vi">@user</span><span class="p">.</span><span class="nf">save</span>
+      <span class="n">session</span><span class="p">[</span><span class="ss">:user_id</span><span class="p">]</span> <span class="o">=</span> <span class="vi">@user</span><span class="p">.</span><span class="nf">id</span>
+      <span class="c1"># Here we are pushing the first room which is</span>
+      <span class="c1"># going to be our open chat room</span>
+      <span class="vi">@user</span><span class="p">.</span><span class="nf">rooms</span> <span class="o">&lt;&lt;</span> <span class="no">Room</span><span class="p">.</span><span class="nf">find</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+      <span class="n">redirect_to</span> <span class="n">rooms_path</span>
+    <span class="k">else</span>
+      <span class="vi">@errors</span> <span class="o">=</span> <span class="vi">@user</span><span class="p">.</span><span class="nf">errors</span><span class="p">.</span><span class="nf">full_messages</span>
+      <span class="n">render</span> <span class="s2">"/users/new"</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+
+  <span class="kp">private</span>
+
+  <span class="k">def</span> <span class="nf">user_params</span>
+    <span class="n">params</span><span class="p">.</span><span class="nf">require</span><span class="p">(</span><span class="ss">:user</span><span class="p">).</span><span class="nf">permit</span><span class="p">(</span><span class="ss">:username</span><span class="p">,</span> <span class="ss">:password</span><span class="p">)</span>
+  <span class="k">end</span>
+
+<span class="k">end</span></code></pre></figure>
+
+<figure class="highlight"><pre><code class="language-erb" data-lang="erb">#app/views/users/new.html.erb
+<span class="cp">&lt;%=</span> <span class="n">form_for</span> <span class="vi">@user</span> <span class="k">do</span> <span class="o">|</span><span class="n">f</span><span class="o">|</span> <span class="cp">%&gt;</span>
+
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">label</span> <span class="ss">:username</span> <span class="cp">%&gt;</span>
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">text_field</span> <span class="ss">:username</span> <span class="cp">%&gt;</span>
+
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">label</span> <span class="ss">:password</span> <span class="cp">%&gt;</span>
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">password_field</span> <span class="ss">:password</span> <span class="cp">%&gt;</span>
+
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">submit</span> <span class="s2">"Login"</span> <span class="cp">%&gt;</span>
+<span class="cp">&lt;%</span> <span class="k">end</span> <span class="cp">%&gt;</span></code></pre></figure>
+
+<p>Now create the controller and views for Session</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="k">class</span> <span class="nc">SessionsController</span> <span class="o">&lt;</span> <span class="no">ApplicationController</span>
+
+  <span class="k">def</span> <span class="nf">new</span>
+    <span class="vi">@user</span> <span class="o">=</span> <span class="no">User</span><span class="p">.</span><span class="nf">new</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">create</span>
+    <span class="vi">@user</span> <span class="o">=</span> <span class="no">User</span><span class="p">.</span><span class="nf">find_by</span><span class="p">(</span><span class="ss">username: </span><span class="n">params</span><span class="p">[</span><span class="ss">:session</span><span class="p">][</span><span class="ss">:username</span><span class="p">])</span>
+    <span class="c1">#utilize bcrypts authenticate method to see if the password is correct</span>
+    <span class="k">if</span> <span class="vi">@user</span> <span class="o">&amp;&amp;</span> <span class="vi">@user</span><span class="p">.</span><span class="nf">authenticate</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="ss">:session</span><span class="p">][</span><span class="ss">:password</span><span class="p">])</span>
+      <span class="n">session</span><span class="p">[</span><span class="ss">:user_id</span><span class="p">]</span> <span class="o">=</span> <span class="vi">@user</span><span class="p">.</span><span class="nf">id</span>
+      <span class="n">redirect_to</span> <span class="n">rooms_path</span>
+    <span class="k">else</span>
+      <span class="vi">@errors</span> <span class="o">=</span> <span class="vi">@user</span><span class="p">.</span><span class="nf">nil?</span> <span class="p">?</span> <span class="p">[</span><span class="s2">"username not found"</span><span class="p">]</span> <span class="p">:</span> <span class="p">[</span><span class="s2">"username and password do not match"</span><span class="p">]</span>
+      <span class="n">render</span> <span class="s2">"/sessions/new"</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">destroy</span>
+    <span class="n">session</span><span class="p">.</span><span class="nf">clear</span>
+    <span class="n">redirect_to</span> <span class="n">root_path</span>
+  <span class="k">end</span>
+
+<span class="k">end</span></code></pre></figure>
+
+<figure class="highlight"><pre><code class="language-erb" data-lang="erb">#app/views/sessions/new.html.erb
+<span class="cp">&lt;%=</span> <span class="n">form_for</span> <span class="ss">:session</span><span class="p">,</span> <span class="ss">url: </span><span class="n">sessions_path</span> <span class="k">do</span> <span class="o">|</span><span class="n">f</span><span class="o">|</span> <span class="cp">%&gt;</span>
+
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">label</span> <span class="ss">:username</span> <span class="cp">%&gt;</span>
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">text_field</span> <span class="ss">:username</span> <span class="cp">%&gt;</span>
+
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">label</span> <span class="ss">:password</span> <span class="cp">%&gt;</span>
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">password_field</span> <span class="ss">:password</span> <span class="cp">%&gt;</span>
+
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">submit</span> <span class="s2">"Login"</span> <span class="cp">%&gt;</span>
+<span class="cp">&lt;%</span> <span class="k">end</span> <span class="cp">%&gt;</span></code></pre></figure>
+
+<p>You can see in the user controller we add everyone to a room when a user is created. The idea of this is to have one open chat room everyne is subscribed to. Add this first room to a seed file and seed the database.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/db/seeds.rb</span>
+<span class="no">Room</span><span class="p">.</span><span class="nf">create</span><span class="p">(</span><span class="ss">name: </span><span class="s2">"open_chat"</span><span class="p">)</span></code></pre></figure>
+
+<p>We want to be able to access the current user and check whether someone is logged in so lets set up those helpers.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="k">class</span> <span class="nc">ApplicationController</span> <span class="o">&lt;</span> <span class="no">ActionController</span><span class="o">::</span><span class="no">Base</span>
+  <span class="n">protect_from_forgery</span> <span class="ss">with: :exception</span>
+  <span class="n">helper_method</span> <span class="ss">:current_user</span><span class="p">,</span> <span class="ss">:logged_in?</span>
+
+  <span class="k">def</span> <span class="nf">current_user</span>
+    <span class="k">return</span> <span class="k">unless</span> <span class="n">session</span><span class="p">[</span><span class="ss">:user_id</span><span class="p">]</span>
+    <span class="vi">@current_user</span> <span class="o">||=</span> <span class="no">User</span><span class="p">.</span><span class="nf">find</span><span class="p">(</span><span class="n">session</span><span class="p">[</span><span class="ss">:user_id</span><span class="p">])</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">logged_in?</span>
+    <span class="o">!!</span><span class="n">session</span><span class="p">[</span><span class="ss">:user_id</span><span class="p">]</span>
+  <span class="k">end</span>
+
+<span class="k">end</span></code></pre></figure>
+
+<p>You now can navigate directly to the new user and session pages. On submit it will break though because we redirect a logged in user to the rooms_path which doesn’t currently exist. Lets get that all wired up. Go ahead and create the rooms controller and set up your routes.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1"># config/routes.rb</span>
+<span class="n">resources</span> <span class="ss">:rooms</span><span class="p">,</span> <span class="ss">except: </span><span class="p">[</span><span class="ss">:update</span><span class="p">,</span> <span class="ss">:edit</span><span class="p">,</span> <span class="ss">:destroy</span><span class="p">]</span>
+
+<span class="c1"># app/controllers/rooms_controller</span>
+<span class="k">class</span> <span class="nc">RoomsController</span> <span class="o">&lt;</span> <span class="no">ApplicationController</span>
+
+  <span class="k">def</span> <span class="nf">show</span>
+    <span class="c1">#fill in soon</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">index</span>
+    <span class="vi">@rooms</span> <span class="o">=</span> <span class="n">current_user</span><span class="p">.</span><span class="nf">rooms</span>
+    <span class="vi">@room</span> <span class="o">=</span> <span class="no">Room</span><span class="p">.</span><span class="nf">new</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">create</span>
+    <span class="vi">@room</span> <span class="o">=</span> <span class="no">Room</span><span class="p">.</span><span class="nf">new</span><span class="p">(</span><span class="n">room_params</span><span class="p">)</span>
+    <span class="k">if</span> <span class="vi">@room</span><span class="p">.</span><span class="nf">save</span>
+      <span class="vi">@room</span><span class="p">.</span><span class="nf">users</span> <span class="o">&lt;&lt;</span> <span class="n">current_user</span>
+      <span class="n">redirect_to</span> <span class="n">room_memberships_path</span><span class="p">(</span><span class="vi">@room</span><span class="p">)</span>
+    <span class="k">else</span>
+      <span class="n">flash</span><span class="p">[</span><span class="ss">:error</span><span class="p">]</span> <span class="o">=</span> <span class="vi">@room</span><span class="p">.</span><span class="nf">errors</span><span class="p">.</span><span class="nf">full_messages</span><span class="p">.</span><span class="nf">to_sentence</span>
+      <span class="n">redirect_to</span> <span class="n">rooms_path</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+
+  <span class="kp">private</span>
+
+  <span class="k">def</span> <span class="nf">room_params</span>
+    <span class="n">params</span><span class="p">.</span><span class="nf">require</span><span class="p">(</span><span class="ss">:room</span><span class="p">).</span><span class="nf">permit</span><span class="p">(</span><span class="ss">:name</span><span class="p">)</span>
+  <span class="k">end</span>
+
+<span class="k">end</span>
+
+<span class="c1"># app/views/rooms/index.html.erb</span>
+  <span class="no">HELLO</span> <span class="no">FROM</span> <span class="no">ROOMS</span> <span class="no">INDEX</span></code></pre></figure>
+
+<p>At this point we should have a functioning user model. Lets add a basic navbar so that we can test all of this out.</p>
+
+<figure class="highlight"><pre><code class="language-erb" data-lang="erb">  #app/view/layouts/application.html.erb right under the body tag
+    <span class="nt">&lt;nav&gt;</span>
+      <span class="nt">&lt;ul&gt;</span>
+        <span class="cp">&lt;%</span> <span class="k">if</span> <span class="n">logged_in?</span> <span class="cp">%&gt;</span>
+          <span class="nt">&lt;li&gt;</span><span class="cp">&lt;%=</span> <span class="s2">"Welcome back </span><span class="si">#{</span><span class="n">current_user</span><span class="p">.</span><span class="nf">username</span><span class="si">}</span><span class="s2">"</span> <span class="cp">%&gt;</span><span class="nt">&lt;/li&gt;</span>
+          <span class="nt">&lt;li&gt;</span><span class="cp">&lt;%=</span> <span class="n">link_to</span> <span class="s2">"Rooms"</span><span class="p">,</span> <span class="n">rooms_path</span> <span class="cp">%&gt;</span><span class="nt">&lt;/li&gt;</span>
+          <span class="nt">&lt;li&gt;</span><span class="cp">&lt;%=</span> <span class="n">link_to</span> <span class="s2">"Logout"</span><span class="p">,</span> <span class="n">session_path</span><span class="p">(</span><span class="n">current_user</span><span class="p">),</span> <span class="ss">method: :delete</span> <span class="cp">%&gt;</span><span class="nt">&lt;/li&gt;</span>
+        <span class="cp">&lt;%</span> <span class="k">else</span> <span class="cp">%&gt;</span>
+          <span class="nt">&lt;li&gt;</span><span class="cp">&lt;%=</span> <span class="n">link_to</span> <span class="s2">"Login"</span><span class="p">,</span> <span class="n">new_session_path</span> <span class="cp">%&gt;</span><span class="nt">&lt;/li&gt;</span>
+          <span class="nt">&lt;li&gt;</span><span class="cp">&lt;%=</span> <span class="n">link_to</span> <span class="s2">"Signup"</span><span class="p">,</span> <span class="n">new_user_path</span> <span class="cp">%&gt;</span><span class="nt">&lt;/li&gt;</span>
+        <span class="cp">&lt;%</span> <span class="k">end</span> <span class="cp">%&gt;</span>
+      <span class="nt">&lt;/ul&gt;</span>
+    <span class="nt">&lt;/nav&gt;</span>
+
+    <span class="cp">&lt;%</span> <span class="k">if</span> <span class="n">flash</span> <span class="cp">%&gt;</span>
+      <span class="cp">&lt;%</span> <span class="n">flash</span><span class="p">.</span><span class="nf">each</span> <span class="k">do</span> <span class="o">|</span><span class="n">type</span><span class="p">,</span> <span class="n">message</span><span class="o">|</span> <span class="cp">%&gt;</span>
+        <span class="nt">&lt;div</span> <span class="na">class=</span><span class="s">"flash"</span><span class="nt">&gt;</span>
+          <span class="cp">&lt;%=</span> <span class="n">message</span> <span class="cp">%&gt;</span>
+        <span class="nt">&lt;/div&gt;</span>
+      <span class="cp">&lt;%</span> <span class="k">end</span> <span class="cp">%&gt;</span>
+    <span class="cp">&lt;%</span> <span class="k">end</span> <span class="cp">%&gt;</span>
+
+    <span class="cp">&lt;%</span> <span class="k">if</span> <span class="vi">@errors</span> <span class="cp">%&gt;</span>
+      <span class="cp">&lt;%</span> <span class="vi">@errors</span><span class="p">.</span><span class="nf">each</span> <span class="k">do</span> <span class="o">|</span><span class="n">error</span><span class="o">|</span> <span class="cp">%&gt;</span>
+        <span class="nt">&lt;div</span> <span class="na">class=</span><span class="s">"errors"</span><span class="nt">&gt;</span>
+          <span class="cp">&lt;%=</span> <span class="n">error</span> <span class="cp">%&gt;</span>
+        <span class="nt">&lt;/div&gt;</span>
+      <span class="cp">&lt;%</span> <span class="k">end</span> <span class="cp">%&gt;</span>
+    <span class="cp">&lt;%</span> <span class="k">end</span> <span class="cp">%&gt;</span></code></pre></figure>
+
+<p>Go ahead and run through login and logouts to see that it is all working appropriately. With that all up and running lets move onto the rooms pages. The idea will be that you can have multiple rooms, and we want to display links to all the show pages for those rooms. So we are going to create two partials that we are going to use inside of the index. One is going to be the form and the other is just the room partial itself to display all of the rooms.</p>
+
+<figure class="highlight"><pre><code class="language-erb" data-lang="erb">#app/views/rooms/_form.html.erb -- new room form partial
+<span class="cp">&lt;%=</span> <span class="n">form_for</span> <span class="n">room</span> <span class="k">do</span> <span class="o">|</span><span class="n">f</span><span class="o">|</span> <span class="cp">%&gt;</span>
+
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">label</span> <span class="ss">:name</span><span class="p">,</span> <span class="s2">"Create new room"</span> <span class="cp">%&gt;</span>
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">text_field</span> <span class="ss">:name</span> <span class="cp">%&gt;</span>
+
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">submit</span> <span class="s2">"Create room"</span> <span class="cp">%&gt;</span>
+
+<span class="cp">&lt;%</span> <span class="k">end</span> <span class="cp">%&gt;</span></code></pre></figure>
+
+<figure class="highlight"><pre><code class="language-erb" data-lang="erb">#app/views/rooms/_room.html.erb -- display room partial
+<span class="nt">&lt;h3&gt;</span><span class="cp">&lt;%=</span> <span class="n">link_to</span> <span class="n">room</span><span class="p">.</span><span class="nf">name</span><span class="p">,</span> <span class="n">room_path</span><span class="p">(</span><span class="n">room</span><span class="p">)</span> <span class="cp">%&gt;</span><span class="nt">&lt;/h3&gt;</span></code></pre></figure>
+
+<figure class="highlight"><pre><code class="language-erb" data-lang="erb">#app/views/rooms/index.html.erb
+<span class="nt">&lt;h2&gt;</span>Your Chatrooms<span class="nt">&lt;/h2&gt;</span>
+<span class="cp">&lt;%=</span> <span class="n">render</span> <span class="ss">partial: </span><span class="s2">"/rooms/form"</span><span class="p">,</span>
+                     <span class="ss">locals: </span><span class="p">{</span><span class="ss">room: </span><span class="vi">@room</span><span class="p">}</span> <span class="cp">%&gt;</span>
+
+<span class="nt">&lt;div</span> <span class="na">class=</span><span class="s">"rooms-list"</span><span class="nt">&gt;</span>
+  <span class="cp">&lt;%=</span> <span class="n">render</span> <span class="vi">@rooms</span> <span class="cp">%&gt;</span>
+<span class="nt">&lt;/div&gt;</span></code></pre></figure>
+
+<p>Alright we are almost ready to start working with action cable. Last things we need to get going are creating new memberships and displaying the rooms. Lets go with creating new memberships first and segway into action cable with showing the rooms. I think it makes the most sense that when a user creates a room he should be directed to a list of users to add to his room. We are going to create a list of current users in the room and a list of users that are not in the room, this is going to be our membership index page. When the creator invites someone off of the list we are going to make an AJAX request, create a membership for that user to the newly created room, remove them from the invite list and add them to members list. Let’s build the routes, controller and index page for membership.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#config/routes.rb</span>
+<span class="c1">#lets go ahead and nest these routes with the rooms routes</span>
+
+  <span class="n">resources</span> <span class="ss">:rooms</span><span class="p">,</span> <span class="ss">except: </span><span class="p">[</span><span class="ss">:update</span><span class="p">,</span> <span class="ss">:edit</span><span class="p">,</span> <span class="ss">:destroy</span><span class="p">]</span> <span class="k">do</span>
+    <span class="n">resources</span> <span class="ss">:memberships</span><span class="p">,</span> <span class="ss">only: </span><span class="p">[</span><span class="ss">:index</span><span class="p">,</span> <span class="ss">:create</span><span class="p">]</span>
+  <span class="k">end</span></code></pre></figure>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/controllers/memberships_controller.rb</span>
+<span class="k">class</span> <span class="nc">MembershipsController</span> <span class="o">&lt;</span> <span class="no">ApplicationController</span>
+
+  <span class="k">def</span> <span class="nf">index</span>
+    <span class="vi">@room</span> <span class="o">=</span> <span class="no">Room</span><span class="p">.</span><span class="nf">find</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="ss">:room_id</span><span class="p">])</span>
+    <span class="n">redirect_with_flash</span> <span class="k">unless</span> <span class="n">member_of_group</span>
+    <span class="vi">@memberships</span> <span class="o">=</span> <span class="no">Membership</span><span class="p">.</span><span class="nf">where</span><span class="p">(</span><span class="ss">room_id: </span><span class="n">params</span><span class="p">[</span><span class="ss">:room_id</span><span class="p">])</span>
+    <span class="vi">@users</span> <span class="o">=</span> <span class="no">User</span><span class="p">.</span><span class="nf">where</span><span class="p">.</span><span class="nf">not</span><span class="p">(</span><span class="ss">id: </span><span class="vi">@memberships</span><span class="p">.</span><span class="nf">pluck</span><span class="p">(</span><span class="ss">:user_id</span><span class="p">))</span>
+  <span class="k">end</span>
+
+<span class="k">end</span></code></pre></figure>
+
+<p>So you can see that we call two new helpers here, redirect_with_flash and member_of_group. Basically we are going to let other members invite to this group after they have been added, but we only want users that are members of the group to be able to add users. We are going to need to create those helpers. Let’s also go ahead and add a verify logged in method to redirect anyone that isn’t signed in. We can attach it as a before action to all of the controllers except users and sessions.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/controllers/application_controller</span>
+  <span class="n">helper_method</span> <span class="ss">:current_user</span><span class="p">,</span> <span class="ss">:logged_in?</span><span class="p">,</span> <span class="ss">:member_of_group</span><span class="p">,</span>
+   <span class="ss">:verified_log_in</span><span class="p">,</span> <span class="ss">:redirect_with_flash</span>
+
+  <span class="k">def</span> <span class="nf">member_of_group</span>
+    <span class="o">!!</span><span class="vi">@room</span><span class="p">.</span><span class="nf">memberships</span><span class="p">.</span><span class="nf">find_by</span><span class="p">(</span><span class="ss">user_id: </span><span class="n">current_user</span><span class="p">.</span><span class="nf">id</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">redirect_with_flash</span>
+    <span class="n">flash</span><span class="p">[</span><span class="ss">:notice</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"You are not a member of that room"</span>
+    <span class="n">redirect_to</span> <span class="n">root_path</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">verify_logged_in</span>
+    <span class="k">unless</span> <span class="n">logged_in?</span>
+      <span class="n">flash</span><span class="p">[</span><span class="ss">:notice</span><span class="p">]</span> <span class="o">=</span> <span class="s2">"You must be logged in to view that page"</span>
+      <span class="n">redirect_to</span> <span class="n">root_path</span>
+    <span class="k">end</span>
+  <span class="k">end</span></code></pre></figure>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#Add the following to the top of the memberships, and rooms controller</span>
+  <span class="n">before_action</span> <span class="ss">:verify_logged_in</span></code></pre></figure>
+
+<p>And finally lets create the index view</p>
+
+<figure class="highlight"><pre><code class="language-erb" data-lang="erb">#app/views/memberships/index.html.erb
+<span class="nt">&lt;h3&gt;</span><span class="cp">&lt;%=</span> <span class="n">link_to</span> <span class="s2">"go to </span><span class="si">#{</span><span class="vi">@room</span><span class="p">.</span><span class="nf">name</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span><span class="n">room_path</span><span class="p">(</span><span class="vi">@room</span><span class="p">)</span> <span class="cp">%&gt;</span><span class="nt">&lt;/h3&gt;</span>
+<span class="nt">&lt;h2</span> <span class="nt">&gt;</span>Add members to <span class="cp">&lt;%=</span><span class="vi">@room</span><span class="p">.</span><span class="nf">name</span><span class="cp">%&gt;</span><span class="nt">&lt;/h2&gt;</span>
+
+<span class="nt">&lt;h4&gt;</span>current members<span class="nt">&lt;/h4&gt;</span>
+<span class="nt">&lt;ul</span> <span class="na">id=</span><span class="s">"member-list"</span><span class="nt">&gt;</span>
+  <span class="cp">&lt;%</span> <span class="vi">@memberships</span><span class="p">.</span><span class="nf">each</span> <span class="k">do</span> <span class="o">|</span><span class="n">member</span><span class="o">|</span> <span class="cp">%&gt;</span>
+    <span class="nt">&lt;li&gt;</span><span class="cp">&lt;%=</span> <span class="n">member</span><span class="p">.</span><span class="nf">name</span> <span class="cp">%&gt;</span><span class="nt">&lt;/li&gt;</span>
+  <span class="cp">&lt;%</span> <span class="k">end</span> <span class="cp">%&gt;</span>
+<span class="nt">&lt;/ul&gt;</span>
+
+<span class="nt">&lt;h4&gt;</span>Add Members<span class="nt">&lt;/h4&gt;</span>
+<span class="nt">&lt;ul</span> <span class="na">id=</span><span class="s">"add-users"</span><span class="nt">&gt;</span>
+<span class="cp">&lt;%</span> <span class="vi">@users</span><span class="p">.</span><span class="nf">each</span> <span class="k">do</span> <span class="o">|</span><span class="n">user</span><span class="o">|</span> <span class="cp">%&gt;</span>
+  <span class="nt">&lt;li&gt;</span>
+    <span class="cp">&lt;%=</span> <span class="n">user</span><span class="p">.</span><span class="nf">username</span> <span class="cp">%&gt;</span>
+    <span class="nt">&lt;input</span> <span class="na">type=</span><span class="s">"checkbox"</span> <span class="na">id=</span><span class="s">"</span><span class="cp">&lt;%=</span> <span class="s2">"</span><span class="si">#{</span><span class="n">user</span><span class="p">.</span><span class="nf">id</span><span class="si">}</span><span class="s2">-add-member"</span> <span class="cp">%&gt;</span><span class="s">"</span><span class="nt">/&gt;</span>
+  <span class="nt">&lt;/li&gt;</span>
+<span class="cp">&lt;%</span> <span class="k">end</span> <span class="cp">%&gt;</span>
+<span class="nt">&lt;/ul&gt;</span></code></pre></figure>
+
+<p>Also a quick method on our membership model to make accessing the member name a little cleaner.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1"># app models/membership.rb</span>
+  <span class="k">def</span> <span class="nf">name</span>
+    <span class="no">User</span><span class="p">.</span><span class="nf">find</span><span class="p">(</span><span class="nb">self</span><span class="p">.</span><span class="nf">user_id</span><span class="p">).</span><span class="nf">username</span>
+  <span class="k">end</span></code></pre></figure>
+
+<p>Now what you <em>should</em> do for the index is break those two list iterations out into helpers but for the purpose of brevity we are just going to keep moving. The idea here is when a member user is on this page they can click the checkbox to add a user to the page. When they click the checkbox we want to send an ajax request to the Membership create action. We want a successful creation to send us back the info on that user so we can remove him from the add member list to the current member list.</p>
+
+<p>Time to make the create action for members. We are only going to get XHR requests for this app and not worry about older compatibility or error handling.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/controllers/memberships_controller.rb</span>
+  <span class="n">before_action</span> <span class="ss">:verify_logged_in</span>
+
+  <span class="k">def</span> <span class="nf">create</span>
+    <span class="vi">@room</span> <span class="o">=</span> <span class="no">Room</span><span class="p">.</span><span class="nf">find</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="ss">:room_id</span><span class="p">])</span>
+    <span class="n">redirect_with_flash</span> <span class="k">unless</span> <span class="n">member_of_group</span>
+
+    <span class="n">user</span> <span class="o">=</span> <span class="no">User</span><span class="p">.</span><span class="nf">find</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="ss">:user_id</span><span class="p">])</span>
+    <span class="n">membership</span> <span class="o">=</span> <span class="no">Membership</span><span class="p">.</span><span class="nf">new</span><span class="p">(</span><span class="ss">user_id: </span><span class="n">user</span><span class="p">.</span><span class="nf">id</span><span class="p">,</span>
+                                <span class="ss">room_id: </span><span class="vi">@room</span><span class="p">.</span><span class="nf">id</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">membership</span><span class="p">.</span><span class="nf">save</span>
+      <span class="n">json_hash</span> <span class="o">=</span> <span class="p">{</span><span class="ss">username: </span><span class="n">user</span><span class="p">.</span><span class="nf">username</span><span class="p">,</span> <span class="ss">id: </span><span class="n">user</span><span class="p">.</span><span class="nf">id</span><span class="p">}</span>
+      <span class="n">render</span> <span class="ss">text: </span><span class="no">JSON</span><span class="p">.</span><span class="nf">generate</span><span class="p">(</span><span class="n">json_hash</span><span class="p">)</span>
+    <span class="k">else</span>
+      <span class="c1">#error handling</span>
+    <span class="k">end</span>
+  <span class="k">end</span></code></pre></figure>
+
+<p>Now lets AJAX this puppy! on click of the div we want to create a membership for the clicked user to the current room. We access the current room through the nested params and we access the user id from the string we use for the input id.</p>
+
+<figure class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="c1">// app/assets/javascripts/main.js</span>
+
+<span class="nx">$</span><span class="p">(</span> <span class="nb">document</span> <span class="p">).</span><span class="nx">ready</span><span class="p">(</span><span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+  <span class="nx">$</span><span class="p">(</span><span class="s1">'#add-users input'</span><span class="p">).</span><span class="nx">on</span> <span class="p">(</span><span class="s1">'click'</span><span class="p">,</span> <span class="kd">function</span><span class="p">(){</span>
+    <span class="kd">var</span> <span class="nx">userId</span> <span class="o">=</span> <span class="nx">$</span><span class="p">(</span><span class="k">this</span><span class="p">).</span><span class="nx">attr</span><span class="p">(</span><span class="s2">"id"</span><span class="p">).</span><span class="nx">split</span><span class="p">(</span><span class="s2">"-"</span><span class="p">)[</span><span class="mi">0</span><span class="p">];</span>
+    <span class="kd">var</span> <span class="nx">data</span> <span class="o">=</span> <span class="p">{</span><span class="na">user_id</span><span class="p">:</span> <span class="nx">userId</span><span class="p">};</span>
+    <span class="nx">$</span><span class="p">.</span><span class="nx">ajax</span><span class="p">({</span>
+      <span class="na">url</span><span class="p">:</span> <span class="k">this</span><span class="p">.</span><span class="nx">action</span><span class="p">,</span>
+      <span class="na">data</span><span class="p">:</span> <span class="nx">data</span><span class="p">,</span>
+      <span class="na">method</span><span class="p">:</span> <span class="s1">'post'</span>
+    <span class="p">}).</span><span class="nx">done</span><span class="p">(</span><span class="kd">function</span><span class="p">(</span><span class="nx">res</span><span class="p">){</span>
+      <span class="kd">var</span> <span class="nx">userData</span> <span class="o">=</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">parse</span><span class="p">(</span><span class="nx">res</span><span class="p">);</span>
+      <span class="nx">$</span><span class="p">(</span><span class="s1">'#'</span> <span class="o">+</span> <span class="nx">userData</span><span class="p">.</span><span class="nx">id</span> <span class="o">+</span> <span class="s2">"-add-member"</span><span class="p">).</span><span class="nx">parent</span><span class="p">().</span><span class="nx">remove</span><span class="p">();</span>
+      <span class="nx">$</span><span class="p">(</span><span class="s1">'#member-list'</span><span class="p">).</span><span class="nx">append</span><span class="p">(</span><span class="nx">memberAppendBuilder</span><span class="p">(</span><span class="nx">userData</span><span class="p">));</span>
+    <span class="p">});</span>
+  <span class="p">});</span>
+<span class="p">});</span>
+
+<span class="kd">var</span> <span class="nx">memberAppendBuilder</span> <span class="o">=</span> <span class="kd">function</span><span class="p">(</span><span class="nx">userData</span><span class="p">){</span>
+   <span class="k">return</span> <span class="s2">"&lt;li&gt;"</span> <span class="o">+</span> <span class="nx">userData</span><span class="p">.</span><span class="nx">username</span> <span class="o">+</span> <span class="s2">"&lt;/li&gt;"</span><span class="p">;</span>
+<span class="p">};</span></code></pre></figure>
+
+<p>I want to add one validation here to our Membership. We should validate that no duplicate records are created so that if some issue comes up on the return value of the AJAX response the user doesn’t just keep clicking and making duplicates in our database.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/models/membership.rb</span>
+<span class="n">validates_uniqueness_of</span> <span class="ss">:user_id</span><span class="p">,</span> <span class="ss">:scope</span> <span class="o">=&gt;</span> <span class="ss">:room_id</span></code></pre></figure>
+
+<p>Try and create a new group now. You will be directed to the memberships page and when you check a checkbox next to a user name they will move from the add members list to the current members list.</p>
+
+<p>Last but not least we need to create our rooms show page. After we have this up and running we are ready to integrate our WebSockets!!! So for this bit we want to have our rooms first render all of the messages, we are gonna limit it to 1000 cause this app is gonna take off! Let’s go ahead and fill out the show action in rooms and create the view.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/controllers/rooms_controller.rb</span>
+  <span class="k">def</span> <span class="nf">show</span>
+    <span class="vi">@room</span> <span class="o">=</span> <span class="no">Room</span><span class="p">.</span><span class="nf">find</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="ss">:id</span><span class="p">])</span>
+    <span class="n">redirect_with_flash</span> <span class="k">unless</span> <span class="n">member_of_group</span>
+
+    <span class="vi">@messages</span> <span class="o">=</span> <span class="vi">@room</span><span class="p">.</span><span class="nf">messages</span><span class="p">.</span><span class="nf">order</span><span class="p">(</span><span class="ss">id: :desc</span><span class="p">).</span><span class="nf">limit</span><span class="p">(</span><span class="mi">500</span><span class="p">).</span><span class="nf">reverse</span>
+    <span class="vi">@message</span> <span class="o">=</span> <span class="no">Message</span><span class="p">.</span><span class="nf">new</span>
+    <span class="vi">@users</span> <span class="o">=</span> <span class="vi">@room</span><span class="p">.</span><span class="nf">users</span>
+  <span class="k">end</span></code></pre></figure>
+
+<figure class="highlight"><pre><code class="language-erb" data-lang="erb"># app/views/show.html.erb
+<span class="nt">&lt;h3&gt;</span><span class="cp">&lt;%=</span> <span class="vi">@room</span><span class="p">.</span><span class="nf">name</span> <span class="cp">%&gt;</span><span class="nt">&lt;/h3&gt;</span>
+
+<span class="nt">&lt;ul</span> <span class="na">id=</span><span class="s">"users-list"</span><span class="nt">&gt;</span>
+  <span class="cp">&lt;%</span> <span class="vi">@users</span><span class="p">.</span><span class="nf">each</span> <span class="k">do</span> <span class="o">|</span><span class="n">user</span><span class="o">|</span> <span class="cp">%&gt;</span>
+      <span class="nt">&lt;li&gt;</span>
+        <span class="cp">&lt;%=</span> <span class="n">user</span><span class="p">.</span><span class="nf">username</span> <span class="cp">%&gt;</span>
+        <span class="cp">&lt;%=</span> <span class="n">image_tag</span> <span class="s2">"green_dot.png"</span><span class="p">,</span> <span class="ss">id: </span><span class="s2">"</span><span class="si">#{</span><span class="n">user</span><span class="p">.</span><span class="nf">id</span><span class="si">}</span><span class="s2">-status"</span><span class="cp">%&gt;</span>
+      <span class="nt">&lt;/li&gt;</span>
+  <span class="cp">&lt;%</span> <span class="k">end</span> <span class="cp">%&gt;</span>
+<span class="nt">&lt;/ul&gt;</span>
+
+<span class="cp">&lt;%=</span> <span class="n">link_to</span> <span class="s2">"invite people"</span><span class="p">,</span> <span class="n">room_memberships_path</span><span class="p">(</span><span class="vi">@room</span><span class="p">)</span> <span class="cp">%&gt;</span></code></pre></figure>
+
+<p>We are going to use that green-dot.png to show when users enter and exit the room eventually. If you are following along you can grab the image from this <a href="https://github.com/thomas-yancey/action-cable-chat-template">repo</a>.</p>
+
+<p>Like a standard chat app we are going to list all messages and than at the bottom have a place to enter a new message. Create the controller and partials for messages.</p>
+
+<figure class="highlight"><pre><code class="language-erb" data-lang="erb">#app/views/messages/_form.html.erb
+<span class="cp">&lt;%=</span> <span class="n">form_for</span> <span class="n">message</span> <span class="k">do</span> <span class="o">|</span><span class="n">f</span><span class="o">|</span> <span class="cp">%&gt;</span>
+
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">hidden_field</span> <span class="ss">:room_id</span><span class="p">,</span> <span class="ss">value: </span><span class="n">room</span><span class="p">.</span><span class="nf">id</span> <span class="cp">%&gt;</span>
+
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">label</span> <span class="ss">:content</span><span class="p">,</span> <span class="s2">"enter message here"</span> <span class="cp">%&gt;</span>
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">text_field</span> <span class="ss">:content</span><span class="p">,</span> <span class="ss">autocomplete: :off</span> <span class="cp">%&gt;</span>
+
+<span class="cp">&lt;%</span> <span class="k">end</span> <span class="cp">%&gt;</span></code></pre></figure>
+
+<figure class="highlight"><pre><code class="language-erb" data-lang="erb">#app/views/messages/_message.html.erb
+<span class="cp">&lt;%=</span> <span class="n">form_for</span> <span class="n">message</span> <span class="k">do</span> <span class="o">|</span><span class="n">f</span><span class="o">|</span> <span class="cp">%&gt;</span>
+
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">hidden_field</span> <span class="ss">:room_id</span><span class="p">,</span> <span class="ss">value: </span><span class="n">room</span><span class="p">.</span><span class="nf">id</span> <span class="cp">%&gt;</span>
+
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">label</span> <span class="ss">:content</span><span class="p">,</span> <span class="s2">"enter message here"</span> <span class="cp">%&gt;</span>
+  <span class="cp">&lt;%=</span> <span class="n">f</span><span class="p">.</span><span class="nf">text_field</span> <span class="ss">:content</span><span class="p">,</span> <span class="ss">autocomplete: :off</span> <span class="cp">%&gt;</span>
+
+<span class="cp">&lt;%</span> <span class="k">end</span> <span class="cp">%&gt;</span></code></pre></figure>
+
+<p>The form partial still is going to give us trouble until we set up that create route for messages. Let’s round out the messages controller and we can finally move on. Let’s set up the create route.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#config/routes.rb</span>
+
+<span class="n">resources</span> <span class="ss">:messages</span><span class="p">,</span> <span class="ss">only: </span><span class="p">[</span><span class="ss">:create</span><span class="p">]</span></code></pre></figure>
+
+<p>and set up the message create. Just to test it out we will have it redirect. On the second part of this post we will wire it up through action cable.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/controllers/messages_controller.rb</span>
+<span class="k">class</span> <span class="nc">MessagesController</span> <span class="o">&lt;</span> <span class="no">ApplicationController</span>
+
+  <span class="k">def</span> <span class="nf">create</span>
+    <span class="vi">@message</span> <span class="o">=</span> <span class="no">Message</span><span class="p">.</span><span class="nf">new</span><span class="p">(</span><span class="n">message_params</span><span class="p">)</span>
+    <span class="vi">@message</span><span class="p">.</span><span class="nf">save</span>
+    <span class="n">redirect_to</span> <span class="ss">:back</span>
+  <span class="k">end</span>
+
+  <span class="kp">private</span>
+
+  <span class="k">def</span> <span class="nf">message_params</span>
+    <span class="n">params</span><span class="p">.</span><span class="nf">require</span><span class="p">(</span><span class="ss">:message</span><span class="p">).</span><span class="nf">permit</span><span class="p">(</span><span class="ss">:room_id</span><span class="p">,</span> <span class="ss">:content</span><span class="p">).</span><span class="nf">merge</span><span class="p">(</span><span class="ss">user_id: </span><span class="n">current_user</span><span class="p">.</span><span class="nf">id</span><span class="p">)</span>
+  <span class="k">end</span>
+
+<span class="k">end</span></code></pre></figure>
+
+<p>Now render all of the messages in the room and add the form just below it. Put these two lines at the bottom of your rooms show page</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/views/rooms/show.html.erb</span>
+<span class="o">&lt;</span><span class="sx">%= render @messages %&gt;
+
+&lt;%=</span> <span class="n">render</span> <span class="ss">partial: </span><span class="s2">"/messages/form"</span><span class="p">,</span> <span class="ss">locals: </span><span class="p">{</span><span class="ss">room: </span><span class="vi">@room</span><span class="p">,</span> <span class="ss">message: </span><span class="vi">@message</span><span class="p">}</span> <span class="o">%&gt;</span></code></pre></figure>
+
+<p>Alright! We made it through, currently we have a pretty basic outline of an app. You can login, logout, create chatrooms, add members, and post messages, Next post we are going make this chat realtime!</p>
+
+</div>
+
+<div class="related">
+  <h2>Related Posts</h2>
+  <ul class="related-posts">
+    
+      <li>
+        <h3>
+          <a href="/2016/08/04/first-forestry-io-post/">
+            First Forestry.io post
+            <small>04 Aug 2016</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="/jekyll/update/2016/07/07/action-cable-chat-two/">
+            Action Cable Chat Part 2
+            <small>07 Jul 2016</small>
+          </a>
+        </h3>
+      </li>
+    
+  </ul>
+</div>
+<div id="disqus_thread"></div>
+<script>
+    /**
+     *  RECOMMENDED CONFIGURATION VARIABLES: EDIT AND UNCOMMENT THE SECTION BELOW TO INSERT DYNAMIC VALUES FROM YOUR PLATFORM OR CMS.
+     *  LEARN WHY DEFINING THESE VARIABLES IS IMPORTANT: https://disqus.com/admin/universalcode/#configuration-variables
+     */
+
+    var disqus_config = function () {
+        this.page.url = "http://lanyon.getpoole.com/jekyll/update/2016/07/06/action-cable-chat/";  // Replace PAGE_URL with your page's canonical URL variable
+        this.page.identifier = "Action Cable Chat Part 1"; // Replace PAGE_IDENTIFIER with your page's unique identifier variable
+    };
+
+
+    (function() {  // DON'T EDIT BELOW THIS LINE
+        var d = document, s = d.createElement('script');
+
+        s.src = '//tomyancey.disqus.com/embed.js';
+
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript" rel="nofollow">comments powered by Disqus.</a></noscript>
+
+      </div>
+    </div>
+
+    <label for="sidebar-checkbox" class="sidebar-toggle"></label>
+
+    <script>
+      (function(document) {
+        var toggle = document.querySelector('.sidebar-toggle');
+        var sidebar = document.querySelector('#sidebar');
+        var checkbox = document.querySelector('#sidebar-checkbox');
+
+        document.addEventListener('click', function(e) {
+          var target = e.target;
+
+          if(!checkbox.checked ||
+             sidebar.contains(target) ||
+             (target === checkbox || target === toggle)) return;
+
+          checkbox.checked = false;
+        }, false);
+      })(document);
+    </script>
+  </body>
+</html>

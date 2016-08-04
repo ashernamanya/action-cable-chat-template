@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en-us">
+
+  <head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  <!-- Enable responsiveness on mobile devices-->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title>
+    
+      Action Cable Chat Part 2 &middot; Thomas Yancey
+    
+  </title>
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="/public/css/poole.css">
+  <link rel="stylesheet" href="/public/css/syntax.css">
+  <link rel="stylesheet" href="/public/css/lanyon.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=PT+Serif:400,400italic,700%7CPT+Sans:400">
+
+  <!-- Icons -->
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="/public/apple-touch-icon-precomposed.png">
+  <link rel="shortcut icon" href="/public/favicon.ico">
+
+  <!-- RSS -->
+  <link rel="alternate" type="application/rss+xml" title="RSS" href="/atom.xml">
+</head>
+
+
+  <body>
+
+    <!-- Target for toggling the sidebar `.sidebar-checkbox` is for regular
+     styles, `#sidebar-checkbox` for behavior. -->
+<input type="checkbox" class="sidebar-checkbox" id="sidebar-checkbox">
+
+<!-- Toggleable sidebar -->
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-item">
+    <p>A blog</p>
+  </div>
+
+  <nav class="sidebar-nav">
+    <a class="sidebar-nav-item" href="/">Home</a>
+
+    
+
+    
+    
+      
+        
+      
+    
+      
+        
+      
+    
+      
+    
+      
+    
+      
+    
+
+    <a class="sidebar-nav-item" href="http://www.tomyancey.me">Personal Site</a>
+    <a class="sidebar-nav-item" href="http://www.github.com/thomas-yancey">My Github</a>
+  </nav>
+
+  <div class="sidebar-item">
+    <p>
+      &copy; 2016. All rights reserved.
+    </p>
+  </div>
+</div>
+
+
+    <!-- Wrap is the content to shift when toggling the sidebar. We wrap the
+         content to avoid any CSS collisions with our real content. -->
+    <div class="wrap">
+      <div class="masthead">
+        <div class="container">
+          <h3 class="masthead-title">
+            <a href="/" title="Home">Thomas Yancey</a>
+            <small>top notch blog</small>
+          </h3>
+        </div>
+      </div>
+
+      <div class="container content">
+        <div class="post">
+  <h1 class="post-title">Action Cable Chat Part 2</h1>
+  <span class="post-date">07 Jul 2016</span>
+  <p>Last post we went through and built out the chat app without any of the realtime features. If you want to work along you can fork the repo from here <a href="https://github.com/thomas-yancey/action-cable-chat-template">action-cable-chat-example</a>.</p>
+
+<!--more-->
+
+<p>Alright so one of the first things we want to do with our action cable is set up the connection between the client and the server. When you create your rails 5 app a lot of this is already given to you. We have to unomment out the bit in config/routes to mount the action cable.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1"># config/routes.rb</span>
+<span class="n">mount</span> <span class="no">ActionCable</span><span class="p">.</span><span class="nf">server</span> <span class="o">=&gt;</span> <span class="s1">'/cable'</span></code></pre></figure>
+
+<p>Make sure that your application head you include the action_cable_meta_tag</p>
+
+<figure class="highlight"><pre><code class="language-erb" data-lang="erb"># app/views/layouts/application.html.erb
+<span class="nt">&lt;head&gt;</span>
+  ...
+  <span class="cp">&lt;%=</span> <span class="n">action_cable_meta_tag</span> <span class="cp">%&gt;</span>
+  ...
+<span class="nt">&lt;/head&gt;</span></code></pre></figure>
+
+<p>And for the enviroment configuration make sure that the localhost:3000/cable is set as the action cable url.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/config/enviroments/development.rb</span>
+<span class="n">config</span><span class="p">.</span><span class="nf">action_cable</span><span class="p">.</span><span class="nf">url</span> <span class="o">=</span> <span class="s2">"ws://localhost:3000/cable"</span></code></pre></figure>
+
+<p>Finally since we only want logged in users to be the ones who have access to any of the pub/sub data we need to verify them when the connection is made. Let’s go ahead and modify our channels connection file. The following snippet is taken from the <a href="http://edgeguides.rubyonrails.org/action_cable_overview.html">rails edge guide</a>.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/channels/application_cable/connection.rb</span>
+<span class="k">module</span> <span class="nn">ApplicationCable</span>
+  <span class="k">class</span> <span class="nc">Connection</span> <span class="o">&lt;</span> <span class="no">ActionCable</span><span class="o">::</span><span class="no">Connection</span><span class="o">::</span><span class="no">Base</span>
+    <span class="n">identified_by</span> <span class="ss">:current_user</span>
+
+    <span class="k">def</span> <span class="nf">connect</span>
+      <span class="nb">self</span><span class="p">.</span><span class="nf">current_user</span> <span class="o">=</span> <span class="n">find_verified_user</span>
+    <span class="k">end</span>
+
+    <span class="kp">protected</span>
+
+      <span class="k">def</span> <span class="nf">find_verified_user</span>
+        <span class="k">if</span> <span class="n">verified_user</span> <span class="o">=</span> <span class="no">User</span><span class="p">.</span><span class="nf">find_by</span><span class="p">(</span><span class="ss">id: </span><span class="n">cookies</span><span class="p">.</span><span class="nf">signed</span><span class="p">[</span><span class="ss">:user_id</span><span class="p">])</span>
+          <span class="n">verified_user</span>
+        <span class="k">else</span>
+          <span class="n">reject_unauthorized_connection</span>
+        <span class="k">end</span>
+      <span class="k">end</span>
+  <span class="k">end</span>
+<span class="k">end</span></code></pre></figure>
+
+<p>As you can see this makes a call to cookies.signed to check the user id. We need to make sure we give the user this signed cookie for the verification. Let’s do that on login and signup right after we create the session.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/controllers/users_controller.rb</span>
+  <span class="k">def</span> <span class="nf">create</span>
+    <span class="vi">@user</span> <span class="o">=</span> <span class="no">User</span><span class="p">.</span><span class="nf">new</span><span class="p">(</span><span class="n">user_params</span><span class="p">)</span>
+    <span class="k">if</span> <span class="vi">@user</span><span class="p">.</span><span class="nf">save</span>
+      <span class="n">session</span><span class="p">[</span><span class="ss">:user_id</span><span class="p">]</span> <span class="o">=</span> <span class="vi">@user</span><span class="p">.</span><span class="nf">id</span>
+      <span class="n">cookies</span><span class="p">.</span><span class="nf">signed</span><span class="p">[</span><span class="ss">:user_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">session</span><span class="p">[</span><span class="ss">:user_id</span><span class="p">]</span>
+      <span class="vi">@user</span><span class="p">.</span><span class="nf">rooms</span> <span class="o">&lt;&lt;</span> <span class="no">Room</span><span class="p">.</span><span class="nf">find</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+      <span class="n">redirect_to</span> <span class="n">rooms_path</span>
+    <span class="k">else</span>
+      <span class="vi">@errors</span> <span class="o">=</span> <span class="vi">@user</span><span class="p">.</span><span class="nf">errors</span><span class="p">.</span><span class="nf">full_messages</span>
+      <span class="n">render</span> <span class="s2">"/users/new"</span>
+    <span class="k">end</span>
+  <span class="k">end</span></code></pre></figure>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/controllers/sessions_controller.rb</span>
+  <span class="k">def</span> <span class="nf">create</span>
+    <span class="vi">@user</span> <span class="o">=</span> <span class="no">User</span><span class="p">.</span><span class="nf">find_by</span><span class="p">(</span><span class="ss">username: </span><span class="n">params</span><span class="p">[</span><span class="ss">:session</span><span class="p">][</span><span class="ss">:username</span><span class="p">])</span>
+    <span class="k">if</span> <span class="vi">@user</span> <span class="o">&amp;&amp;</span> <span class="vi">@user</span><span class="p">.</span><span class="nf">authenticate</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="ss">:session</span><span class="p">][</span><span class="ss">:password</span><span class="p">])</span>
+      <span class="n">session</span><span class="p">[</span><span class="ss">:user_id</span><span class="p">]</span> <span class="o">=</span> <span class="vi">@user</span><span class="p">.</span><span class="nf">id</span>
+      <span class="n">cookies</span><span class="p">.</span><span class="nf">signed</span><span class="p">[</span><span class="ss">:user_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">session</span><span class="p">[</span><span class="ss">:user_id</span><span class="p">]</span>
+      <span class="n">redirect_to</span> <span class="n">rooms_path</span>
+    <span class="k">else</span>
+      <span class="vi">@errors</span> <span class="o">=</span> <span class="vi">@user</span><span class="p">.</span><span class="nf">nil?</span> <span class="p">?</span> <span class="p">[</span><span class="s2">"username not found"</span><span class="p">]</span> <span class="p">:</span> <span class="vi">@user</span><span class="p">.</span><span class="nf">errors</span><span class="p">.</span><span class="nf">full_messages</span>
+      <span class="n">render</span> <span class="s2">"/sessions/new"</span>
+    <span class="k">end</span>
+  <span class="k">end</span></code></pre></figure>
+
+<p>Now let’s build out the room channel which will broadcast messages as they come in. rails has a generator for this so we can call. It builds out the javascript channel file and the ruby channel file.</p>
+
+<figure class="highlight"><pre><code class="language-powershell" data-lang="powershell">rails g channel room</code></pre></figure>
+
+<p>We only want users to see messages that are sent to the channel that they are currently in so we are going to scope them out to the specific room. Let’s build out the client portion first.</p>
+
+<figure class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="c1">// app/assets/javascripts/channels/room.js</span>
+
+<span class="nx">App</span><span class="p">.</span><span class="nx">room</span> <span class="o">=</span> <span class="nx">App</span><span class="p">.</span><span class="nx">cable</span><span class="p">.</span><span class="nx">subscriptions</span><span class="p">.</span><span class="nx">create</span><span class="p">({</span>
+  <span class="na">channel</span><span class="p">:</span><span class="s1">'RoomChannel'</span><span class="p">,</span>
+   <span class="na">room</span><span class="p">:</span> <span class="nb">window</span><span class="p">.</span><span class="nx">location</span><span class="p">.</span><span class="nx">pathname</span><span class="p">.</span><span class="nx">split</span><span class="p">(</span><span class="s2">"/"</span><span class="p">)[</span><span class="mi">2</span><span class="p">]</span>
+ <span class="p">},</span> <span class="p">{</span>
+  <span class="na">received</span><span class="p">:</span> <span class="kd">function</span><span class="p">(</span><span class="nx">data</span><span class="p">)</span> <span class="p">{</span>
+    <span class="nx">$</span><span class="p">(</span><span class="s1">'#messages'</span><span class="p">).</span><span class="nx">append</span><span class="p">(</span><span class="nx">data</span><span class="p">.</span><span class="nx">message</span><span class="p">);</span>
+  <span class="p">}</span>
+<span class="p">});</span></code></pre></figure>
+
+<p>We send back the name of the room which will link up with the created ruby file. We also send back the param of room which is optional and let’s us scope out this channel. You can configure it however you want, I am just going to grab the room id off the end of the url.
+as you can see we are going to append the data we receive back through this channel to a messages div. Let’s wrap the rendered messages in a div with an id of messages.</p>
+
+<figure class="highlight"><pre><code class="language-erb" data-lang="erb">#app/views/rooms/show.html.erb
+
+<span class="nt">&lt;div</span> <span class="na">id=</span><span class="s">"messages"</span><span class="nt">&gt;</span>
+  <span class="cp">&lt;%=</span> <span class="n">render</span> <span class="vi">@messages</span> <span class="cp">%&gt;</span>
+<span class="nt">&lt;/div&gt;</span></code></pre></figure>
+
+<p>Now let’s make our server side connection. When a user calls the subscription.create method on the front-end, it will call the subscribed method for the specified channel on the backend. Let’s wire that up.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1"># app/channels/room_channel.rb</span>
+<span class="k">class</span> <span class="nc">RoomChannel</span> <span class="o">&lt;</span> <span class="no">ApplicationCable</span><span class="o">::</span><span class="no">Channel</span>
+  <span class="k">def</span> <span class="nf">subscribed</span>
+    <span class="n">stream_from</span> <span class="s2">"room_</span><span class="si">#{</span><span class="n">params</span><span class="p">[</span><span class="ss">:room</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">unsubscribed</span>
+    <span class="c1"># Any cleanup needed when channel is unsubscribed</span>
+  <span class="k">end</span>
+<span class="k">end</span></code></pre></figure>
+
+<p>Now we want to broadcast to all of the subscribed users any new created message. We are going to use a job that will perform this after creation. We can use rails generate job for this</p>
+
+<figure class="highlight"><pre><code class="language-powershell" data-lang="powershell">rails g job MessageBroadcast</code></pre></figure>
+
+<p>now in our jobs folder lets modify the newly created file.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1"># app/jobs/message_broadcast_job.rb</span>
+
+<span class="k">class</span> <span class="nc">MessageBroadcastJob</span> <span class="o">&lt;</span> <span class="no">ApplicationJob</span>
+  <span class="n">queue_as</span> <span class="ss">:default</span>
+
+  <span class="k">def</span> <span class="nf">perform</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+    <span class="no">ActionCable</span><span class="p">.</span><span class="nf">server</span><span class="p">.</span><span class="nf">broadcast</span> <span class="s2">"room_</span><span class="si">#{</span><span class="n">message</span><span class="p">.</span><span class="nf">room_id</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span> <span class="ss">message: </span><span class="n">render_message</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="kp">private</span>
+    <span class="k">def</span> <span class="nf">render_message</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+      <span class="no">ApplicationController</span><span class="p">.</span><span class="nf">renderer</span><span class="p">.</span><span class="nf">render</span><span class="p">(</span><span class="ss">partial: </span><span class="s1">'messages/message'</span><span class="p">,</span> <span class="ss">locals: </span><span class="p">{</span> <span class="ss">message: </span><span class="n">message</span><span class="p">})</span>
+    <span class="k">end</span>
+<span class="k">end</span></code></pre></figure>
+
+<p>Let’s put in our message model that any time that a model is created <em>and</em> committed that we want to broadcast it to the room.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/models/message.rb</span>
+  <span class="n">belongs_to</span> <span class="ss">:user</span>
+  <span class="n">belongs_to</span> <span class="ss">:room</span>
+  <span class="n">after_create_commit</span> <span class="p">{</span> <span class="no">MessageBroadcastJob</span><span class="p">.</span><span class="nf">perform_later</span><span class="p">(</span><span class="nb">self</span><span class="p">)}</span></code></pre></figure>
+
+<p>Now to see if all of this is working we are going to have to ajax our message submit. Let’s remove the redirect_to :back in the messages create controller we had previously and build out an ajax call.</p>
+
+<figure class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="c1">// app/assets/javascripts/main.js</span>
+
+<span class="nx">$</span><span class="p">(</span><span class="s1">'#new_message'</span><span class="p">).</span><span class="nx">on</span> <span class="p">(</span><span class="s1">'submit'</span><span class="p">,</span> <span class="kd">function</span><span class="p">(){</span>
+    <span class="nx">event</span><span class="p">.</span><span class="nx">preventDefault</span><span class="p">();</span>
+    <span class="c1">// make sure there is content</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">$</span><span class="p">(</span><span class="s1">'#new_message [name="message[content]"]'</span><span class="p">).</span><span class="nx">val</span><span class="p">()</span> <span class="o">===</span> <span class="s2">""</span><span class="p">){</span>
+      <span class="k">return</span> <span class="kc">false</span><span class="p">;</span>
+    <span class="p">}</span>
+
+    <span class="nx">$</span><span class="p">.</span><span class="nx">ajax</span><span class="p">({</span>
+      <span class="na">url</span><span class="p">:</span> <span class="k">this</span><span class="p">.</span><span class="nx">action</span><span class="p">,</span>
+      <span class="na">data</span><span class="p">:</span> <span class="nx">$</span><span class="p">(</span><span class="k">this</span><span class="p">).</span><span class="nx">serialize</span><span class="p">(),</span>
+      <span class="na">method</span><span class="p">:</span> <span class="s2">"post"</span>
+    <span class="p">}).</span><span class="nx">done</span><span class="p">(</span> <span class="kd">function</span><span class="p">(</span><span class="nx">res</span><span class="p">){</span>
+      <span class="c1">// reset user input to empty</span>
+      <span class="nx">$</span><span class="p">(</span><span class="s1">'#new_message [name="message[content]"]'</span><span class="p">).</span><span class="nx">val</span><span class="p">(</span><span class="s2">""</span><span class="p">);</span>
+    <span class="p">});</span>
+  <span class="p">});</span>
+<span class="p">});</span></code></pre></figure>
+
+<p>Restart your server and if everything is working we should have chats being posted in realtime! WHAT! crazy. Test it out, open two browsers, one incognito and login as two different users. You should see it appear on both screens after a submit.</p>
+
+<p>Alright now that we have that working lets get those users displaying in realtime. Now this one is a bit more tricky. Since users can only get data published to them when they are subscribed it’s not as simple to show the users that were logged in before you entered the room. Let’s add an online field to our memberships table as a way to manage peoples status. create a new migration to add the field online as a boolean to memberships</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#your migration should look like this</span>
+
+<span class="k">class</span> <span class="nc">AddOnlineToMembership</span> <span class="o">&lt;</span> <span class="no">ActiveRecord</span><span class="o">::</span><span class="no">Migration</span><span class="p">[</span><span class="mi">5</span><span class="o">.</span><span class="mi">0</span><span class="p">]</span>
+  <span class="k">def</span> <span class="nf">change</span>
+    <span class="n">add_column</span> <span class="ss">:memberships</span><span class="p">,</span> <span class="ss">:online</span><span class="p">,</span> <span class="ss">:boolean</span><span class="p">,</span> <span class="ss">default: :false</span>
+  <span class="k">end</span>
+<span class="k">end</span></code></pre></figure>
+
+<p>Drop, create, migrate and seed your database again. You may have to also delete your browser history to get rid of the session[:user_id] on your browser. now create the appearance channel, we are going to scope it out the same way with the room index. Everytime someone subscribes to the room we are going to set the status to true and publish that membership data to the room. Same for when they unsubscribe and we set the status to false. We will first create the appearance channel</p>
+
+<figure class="highlight"><pre><code class="language-powershell" data-lang="powershell">  rails g channel appearance</code></pre></figure>
+
+<p>Let’s work out the server side code which is going to call two methods that we need to define in the membership model – is_online and is_offline</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1"># app/models/membership.rb add these two methods</span>
+
+  <span class="k">def</span> <span class="nf">is_online</span>
+    <span class="nb">self</span><span class="p">.</span><span class="nf">update_attributes</span><span class="p">(</span><span class="ss">online: </span><span class="kp">true</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">is_offline</span>
+    <span class="nb">self</span><span class="p">.</span><span class="nf">update_attributes</span><span class="p">(</span><span class="ss">online: </span><span class="kp">false</span><span class="p">)</span>
+  <span class="k">end</span></code></pre></figure>
+
+<p>And then the server side channel code.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/channels/appearance_channel.rb</span>
+<span class="k">class</span> <span class="nc">AppearanceChannel</span> <span class="o">&lt;</span> <span class="no">ApplicationCable</span><span class="o">::</span><span class="no">Channel</span>
+  <span class="k">def</span> <span class="nf">subscribed</span>
+    <span class="n">member</span> <span class="o">=</span> <span class="no">Membership</span><span class="p">.</span><span class="nf">where</span><span class="p">(</span><span class="ss">user_id: </span><span class="n">current_user</span><span class="p">.</span><span class="nf">id</span><span class="p">,</span> <span class="ss">room_id: </span><span class="n">params</span><span class="p">[</span><span class="ss">:room</span><span class="p">]).</span><span class="nf">first</span>
+    <span class="k">return</span> <span class="k">unless</span> <span class="n">member</span>
+    <span class="n">member</span><span class="p">.</span><span class="nf">is_online</span>
+    <span class="n">stream_from</span> <span class="s2">"appearance_</span><span class="si">#{</span><span class="n">params</span><span class="p">[</span><span class="ss">:room</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">unsubscribed</span>
+    <span class="n">member</span> <span class="o">=</span> <span class="no">Membership</span><span class="p">.</span><span class="nf">where</span><span class="p">(</span><span class="ss">user_id: </span><span class="n">current_user</span><span class="p">.</span><span class="nf">id</span><span class="p">,</span> <span class="ss">room_id: </span><span class="n">params</span><span class="p">[</span><span class="ss">:room</span><span class="p">]).</span><span class="nf">first</span>
+    <span class="k">return</span> <span class="k">unless</span> <span class="n">member</span>
+    <span class="n">member</span><span class="p">.</span><span class="nf">is_offline</span>
+  <span class="k">end</span>
+<span class="k">end</span></code></pre></figure>
+
+<p>Let’s make a job similar to how we did for messages after a commit for the membership model. We are going to want to publish data whenever a membership status changes from true to false or vice versa.</p>
+
+<figure class="highlight"><pre><code class="language-powershell" data-lang="powershell">rails g job AppearanceBroadcast</code></pre></figure>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/jobs/appearance_broadcast_job.rb</span>
+<span class="k">class</span> <span class="nc">AppearanceBroadcastJob</span> <span class="o">&lt;</span> <span class="no">ApplicationJob</span>
+  <span class="n">queue_as</span> <span class="ss">:default</span>
+
+  <span class="k">def</span> <span class="nf">perform</span><span class="p">(</span><span class="n">membership</span><span class="p">)</span>
+    <span class="no">ActionCable</span><span class="p">.</span><span class="nf">server</span><span class="p">.</span><span class="nf">broadcast</span> <span class="s2">"appearance_</span><span class="si">#{</span><span class="n">membership</span><span class="p">.</span><span class="nf">room_id</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span> <span class="n">render_json</span><span class="p">(</span><span class="n">membership</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="kp">private</span>
+
+  <span class="k">def</span> <span class="nf">render_json</span><span class="p">(</span><span class="n">membership</span><span class="p">)</span>
+    <span class="no">ApplicationController</span><span class="p">.</span><span class="nf">renderer</span><span class="p">.</span><span class="nf">render</span><span class="p">(</span><span class="ss">json: </span><span class="n">membership</span><span class="p">)</span>
+  <span class="k">end</span>
+
+<span class="k">end</span></code></pre></figure>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1"># app/models/membership.rb add this right under the validations</span>
+  <span class="n">after_update_commit</span> <span class="p">{</span><span class="no">AppearanceBroadcastJob</span><span class="p">.</span><span class="nf">perform_later</span> <span class="nb">self</span><span class="p">}</span></code></pre></figure>
+
+<p>Now let’s finish up our connection with the javascript channel code. We are going to subscribe to the scoped room, when subscribed we will be waiting for broadcasts from the job we just put together. When we receive that broadcast we are going to use the data to target the li that contains that username and active green dot.</p>
+
+<figure class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="c1">// app/assets/javascripts/channels/appearance.js</span>
+<span class="nx">App</span><span class="p">.</span><span class="nx">appearance</span> <span class="o">=</span> <span class="nx">App</span><span class="p">.</span><span class="nx">cable</span><span class="p">.</span><span class="nx">subscriptions</span><span class="p">.</span><span class="nx">create</span><span class="p">({</span>
+  <span class="na">channel</span><span class="p">:</span><span class="s1">'AppearanceChannel'</span><span class="p">,</span>
+   <span class="na">room</span><span class="p">:</span> <span class="nb">window</span><span class="p">.</span><span class="nx">location</span><span class="p">.</span><span class="nx">pathname</span><span class="p">.</span><span class="nx">split</span><span class="p">(</span><span class="s2">"/"</span><span class="p">)[</span><span class="mi">2</span><span class="p">]</span>
+ <span class="p">},</span> <span class="p">{</span>
+  <span class="na">received</span><span class="p">:</span> <span class="kd">function</span><span class="p">(</span><span class="nx">data</span><span class="p">)</span> <span class="p">{</span>
+    <span class="kd">var</span> <span class="nx">membership</span> <span class="o">=</span> <span class="nx">JSON</span><span class="p">.</span><span class="nx">parse</span><span class="p">(</span><span class="nx">data</span><span class="p">)</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">membership</span><span class="p">.</span><span class="nx">online</span> <span class="o">===</span> <span class="kc">true</span><span class="p">){</span>
+      <span class="nx">$</span><span class="p">(</span><span class="nx">userImgIdConstructor</span><span class="p">(</span><span class="nx">membership</span><span class="p">)).</span><span class="nx">attr</span><span class="p">(</span><span class="s1">'class'</span><span class="p">,</span> <span class="s1">'active'</span><span class="p">);</span>
+    <span class="p">};</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nx">membership</span><span class="p">.</span><span class="nx">online</span> <span class="o">===</span> <span class="kc">false</span><span class="p">){</span>
+      <span class="nx">$</span><span class="p">(</span><span class="nx">userImgIdConstructor</span><span class="p">(</span><span class="nx">membership</span><span class="p">)).</span><span class="nx">attr</span><span class="p">(</span><span class="s1">'class'</span><span class="p">,</span> <span class="s1">'inactive'</span><span class="p">);</span>
+    <span class="p">};</span>
+  <span class="p">}</span>
+<span class="p">});</span>
+
+<span class="kd">var</span> <span class="nx">userImgIdConstructor</span> <span class="o">=</span> <span class="kd">function</span><span class="p">(</span><span class="nx">membership</span><span class="p">){</span>
+  <span class="k">return</span> <span class="s2">"#"</span> <span class="o">+</span> <span class="nx">membership</span><span class="p">.</span><span class="nx">user_id</span> <span class="o">+</span> <span class="s2">"-status"</span><span class="p">;</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>Now let’s switch our rooms/show controller and view to iterate through memberships rather than users so we have access to the online status from the start.</p>
+
+<p>The plan is at first when we load the room show page we are going to display all currently active members by using the membership online status.</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1"># app/controllers/rooms_controller.rb</span>
+
+  <span class="k">def</span> <span class="nf">show</span>
+    <span class="vi">@room</span> <span class="o">=</span> <span class="no">Room</span><span class="p">.</span><span class="nf">find</span><span class="p">(</span><span class="n">params</span><span class="p">[</span><span class="ss">:id</span><span class="p">])</span>
+    <span class="n">redirect_with_flash</span> <span class="k">unless</span> <span class="n">member_of_group</span>
+
+    <span class="vi">@messages</span> <span class="o">=</span> <span class="vi">@room</span><span class="p">.</span><span class="nf">messages</span><span class="p">.</span><span class="nf">order</span><span class="p">(</span><span class="ss">id: :desc</span><span class="p">).</span><span class="nf">limit</span><span class="p">(</span><span class="mi">500</span><span class="p">).</span><span class="nf">reverse</span>
+    <span class="vi">@message</span> <span class="o">=</span> <span class="no">Message</span><span class="p">.</span><span class="nf">new</span>
+    <span class="vi">@memberships</span> <span class="o">=</span> <span class="vi">@room</span><span class="p">.</span><span class="nf">memberships</span>
+  <span class="k">end</span></code></pre></figure>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#app/views/show.html.erb</span>
+<span class="c1">#we switch what was previously @users to this</span>
+
+<span class="o">&lt;</span><span class="n">ul</span> <span class="nb">id</span><span class="o">=</span><span class="s2">"users-list"</span><span class="o">&gt;</span>
+  <span class="o">&lt;</span><span class="sx">% @memberships.each </span><span class="k">do</span> <span class="o">|</span><span class="n">member</span><span class="o">|</span> <span class="sx">%&gt;
+      &lt;li&gt;</span>
+        <span class="o">&lt;</span><span class="sx">%= member.name %&gt;
+        &lt;% if member.online %&gt;
+          &lt;%=</span> <span class="n">image_tag</span> <span class="s2">"green_dot.png"</span><span class="p">,</span> <span class="ss">id: </span><span class="s2">"</span><span class="si">#{</span><span class="n">member</span><span class="p">.</span><span class="nf">user_id</span><span class="si">}</span><span class="s2">-status"</span><span class="p">,</span> <span class="ss">class: </span><span class="s2">"active"</span> <span class="o">%&gt;</span>
+        <span class="o">&lt;</span><span class="sx">% else </span><span class="o">%&gt;</span>
+          <span class="o">&lt;</span><span class="sx">%= image_tag "green_dot.png", id: "#{member.user_id}-status", class: "inactive" %&gt;
+        &lt;% end %&gt;
+      &lt;/li&gt;
+  &lt;% end %&gt;
+&lt;/ul&gt;</span></code></pre></figure>
+
+<p>Set the css to have the green dot display for the class active and not display for inactive</p>
+
+<figure class="highlight"><pre><code class="language-css" data-lang="css"><span class="c">/* app/assets/stylesheets/main.css */</span>
+<span class="nc">.active</span> <span class="p">{</span>
+  <span class="nl">display</span><span class="p">:</span> <span class="p">;</span>
+<span class="p">}</span>
+
+<span class="nc">.inactive</span> <span class="p">{</span>
+  <span class="nl">display</span><span class="p">:</span> <span class="nb">none</span><span class="p">;</span>
+<span class="p">}</span></code></pre></figure>
+
+<p>Now when the pageload initially occurs we see all of the current statuses of users online. That paired with the appearance channel we will see the green dot vanish when users leave the room and appear when they enter. Test it out, login with one user in incognito and another user in a seperate browser. when one of them exits the dot disappears, when they enter again it comes back.</p>
+
+<p>We have a full fledged chat app at this point, users can talk in realtime and you can view all of the users currently in the room. All that is left to do is style the app. Let’s deploy this guy to heroku. Create your new app on heroku and grab the app name.</p>
+
+<p>Now most of this section is taken line for line from <a href="https://blog.heroku.com/real_time_rails_implementing_websockets_in_rails_5_with_action_cable">this post</a> by Sophie DeBenedetto. It is a great tutorial and much more informative than this one!</p>
+
+<figure class="highlight"><pre><code class="language-powershell" data-lang="powershell">heroku create your-app-name</code></pre></figure>
+
+<p>add redistogo to your app</p>
+
+<figure class="highlight"><pre><code class="language-powershell" data-lang="powershell">heroku addons:add redistogo</code></pre></figure>
+
+<p>now run the following command to grab to view your config variables</p>
+
+<figure class="highlight"><pre><code class="language-powershell" data-lang="powershell">heroku config --app your-app-name</code></pre></figure>
+
+<p>copy and paste the redistogo url from your config variables to your config cable.yml</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1"># config/cable.yml</span>
+<span class="ss">development:
+  adapter: </span><span class="n">async</span>
+
+<span class="ss">test:
+  adapter: </span><span class="n">async</span>
+
+<span class="ss">production:
+  adapter: </span><span class="n">redis</span>
+  <span class="ss">url: </span><span class="n">redis</span><span class="ss">:/</span><span class="o">/</span><span class="n">redistogo</span><span class="p">:</span><span class="mi">1</span><span class="n">f287370bc437360cea3f77d7bdc6ede</span><span class="vi">@catfish</span><span class="p">.</span><span class="nf">redistogo</span><span class="p">.</span><span class="nf">com</span><span class="p">:</span><span class="mi">10846</span><span class="o">/</span></code></pre></figure>
+
+<p>Add the following to your config environments production file</p>
+
+<figure class="highlight"><pre><code class="language-ruby" data-lang="ruby"><span class="c1">#</span>
+<span class="n">config</span><span class="p">.</span><span class="nf">web_socket_server_url</span> <span class="o">=</span> <span class="s2">"wss://your-app-name.herokuapp.com/cable"</span>
+  <span class="n">config</span><span class="p">.</span><span class="nf">action_cable</span><span class="p">.</span><span class="nf">allowed_request_origins</span> <span class="o">=</span> <span class="p">[</span><span class="s1">'http://your-app-name.herokuapp.com'</span><span class="p">,</span> <span class="sr">/http:\/\/your-app-name.herokuapp.com\/*/</span><span class="p">]</span></code></pre></figure>
+
+<p>that last bit says any address that matches our own with a wildcard for anything to follow. You may want to get more strict on the channels you allow.</p>
+
+<p>specify cable on the client side when you call create consumer</p>
+
+<figure class="highlight"><pre><code class="language-javascript" data-lang="javascript"><span class="c1">// app/assets/javascripts/cable.js</span>
+
+<span class="p">(</span><span class="kd">function</span><span class="p">()</span> <span class="p">{</span>
+  <span class="k">this</span><span class="p">.</span><span class="nx">App</span> <span class="o">||</span> <span class="p">(</span><span class="k">this</span><span class="p">.</span><span class="nx">App</span> <span class="o">=</span> <span class="p">{});</span>
+
+  <span class="nx">App</span><span class="p">.</span><span class="nx">cable</span> <span class="o">=</span> <span class="nx">ActionCable</span><span class="p">.</span><span class="nx">createConsumer</span><span class="p">(</span><span class="s2">"/cable"</span><span class="p">);</span>
+
+<span class="p">}).</span><span class="nx">call</span><span class="p">(</span><span class="k">this</span><span class="p">);</span></code></pre></figure>
+
+<p>Now all that’s left to do is deploy and pray</p>
+
+<figure class="highlight"><pre><code class="language-powershell" data-lang="powershell">rake assets:precompile
+git push heroku master
+heroku run rake db:migrate
+heroku run rake db:seed</code></pre></figure>
+
+<p>Hope that worked out for you! Obviously this app could use some styling but I am going to leave that up to you. If you are looking to keep working your action cable skills I would recommend trying to build out a channel for user to user channel within the room. Also check out this cool post on building <a href="http://jargon.io/joeyschoblaska/rails-5-chess-with-action-cable-websockets">chess with action cable</a>.</p>
+
+<h2 id="go-through-all-of-your-before-action-for-validations">Go through all of your before action for validations</h2>
+
+
+</div>
+
+<div class="related">
+  <h2>Related Posts</h2>
+  <ul class="related-posts">
+    
+      <li>
+        <h3>
+          <a href="/2016/08/04/first-forestry-io-post/">
+            First Forestry.io post
+            <small>04 Aug 2016</small>
+          </a>
+        </h3>
+      </li>
+    
+      <li>
+        <h3>
+          <a href="/jekyll/update/2016/07/06/action-cable-chat/">
+            Action Cable Chat Part 1
+            <small>06 Jul 2016</small>
+          </a>
+        </h3>
+      </li>
+    
+  </ul>
+</div>
+<div id="disqus_thread"></div>
+<script>
+    /**
+     *  RECOMMENDED CONFIGURATION VARIABLES: EDIT AND UNCOMMENT THE SECTION BELOW TO INSERT DYNAMIC VALUES FROM YOUR PLATFORM OR CMS.
+     *  LEARN WHY DEFINING THESE VARIABLES IS IMPORTANT: https://disqus.com/admin/universalcode/#configuration-variables
+     */
+
+    var disqus_config = function () {
+        this.page.url = "http://lanyon.getpoole.com/jekyll/update/2016/07/07/action-cable-chat-two/";  // Replace PAGE_URL with your page's canonical URL variable
+        this.page.identifier = "Action Cable Chat Part 2"; // Replace PAGE_IDENTIFIER with your page's unique identifier variable
+    };
+
+
+    (function() {  // DON'T EDIT BELOW THIS LINE
+        var d = document, s = d.createElement('script');
+
+        s.src = '//tomyancey.disqus.com/embed.js';
+
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript" rel="nofollow">comments powered by Disqus.</a></noscript>
+
+      </div>
+    </div>
+
+    <label for="sidebar-checkbox" class="sidebar-toggle"></label>
+
+    <script>
+      (function(document) {
+        var toggle = document.querySelector('.sidebar-toggle');
+        var sidebar = document.querySelector('#sidebar');
+        var checkbox = document.querySelector('#sidebar-checkbox');
+
+        document.addEventListener('click', function(e) {
+          var target = e.target;
+
+          if(!checkbox.checked ||
+             sidebar.contains(target) ||
+             (target === checkbox || target === toggle)) return;
+
+          checkbox.checked = false;
+        }, false);
+      })(document);
+    </script>
+  </body>
+</html>
